@@ -47,6 +47,10 @@ class PrintLog:
             for custom_score in nn.custom_scores:
                 info_tabulate[custom_score[0]] = info[custom_score[0]]
 
+        if nn.custom_epoch_scores:
+            for custom_score in nn.custom_epoch_scores:
+                info_tabulate[custom_score[0]] = info[custom_score[0]]
+
         info_tabulate['dur'] = "{:.2f}s".format(info['dur'])
 
         tabulated = tabulate(

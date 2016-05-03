@@ -197,6 +197,7 @@ class NeuralNet(BaseEstimator):
         max_epochs=100,
         train_split=TrainSplit(eval_size=0.2),
         custom_scores=None,
+        custom_epoch_scores=None,
         X_tensor_type=None,
         y_tensor_type=None,
         use_label_encoder=False,
@@ -285,7 +286,7 @@ class NeuralNet(BaseEstimator):
 
         if isinstance(layers, Layer):
             layers = _list([layers])
-            
+
         self.layers = layers
         self.update = update
         self.objective = objective
@@ -296,6 +297,7 @@ class NeuralNet(BaseEstimator):
         self.max_epochs = max_epochs
         self.train_split = train_split
         self.custom_scores = custom_scores
+        self.custom_epoch_scores = custom_epoch_scores
         self.y_tensor_type = y_tensor_type
         self.use_label_encoder = use_label_encoder
         self.on_batch_finished = on_batch_finished or []
@@ -579,6 +581,7 @@ class NeuralNet(BaseEstimator):
                 custom_scores = [[] for _ in self.custom_scores]
             else:
                 custom_scores = []
+            y_pred_epoch = []
 
             t0 = time()
 
@@ -600,11 +603,14 @@ class NeuralNet(BaseEstimator):
                 valid_accuracies.append(accuracy)
                 batch_valid_sizes.append(len(Xb))
 
-                if self.custom_scores:
+                if self.custom_scores or self.custom_epoch_scores:
                     y_prob = self.apply_batch_func(self.predict_iter_, Xb)
-                    for custom_scorer, custom_score in zip(
-                            self.custom_scores, custom_scores):
-                        custom_score.append(custom_scorer[1](yb, y_prob))
+                    if self.custom_scores:
+                        for custom_scorer, custom_score in zip(
+                                self.custom_scores, custom_scores):
+                            custom_score.append(custom_scorer[1](yb, y_prob))
+                    if self.custom_epoch_scores:
+                        y_pred_epoch.append(y_prob)
 
             avg_train_loss = np.average(
                 train_losses, weights=batch_train_sizes)
@@ -636,6 +642,12 @@ class NeuralNet(BaseEstimator):
             if self.custom_scores:
                 for index, custom_score in enumerate(self.custom_scores):
                     info[custom_score[0]] = avg_custom_scores[index]
+            if self.custom_epoch_scores:
+                y_pred_epoch = np.vstack(y_pred_epoch)
+                print y_pred_epoch.shape
+                for custom_score in self.custom_epoch_scores:
+                    score = custom_score[1](y_valid, y_pred_epoch)
+                    info[custom_score[0]] = score
             self.train_history_.append(info)
 
             try:
