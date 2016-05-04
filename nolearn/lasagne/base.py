@@ -644,7 +644,8 @@ class NeuralNet(BaseEstimator):
                     info[custom_score[0]] = avg_custom_scores[index]
             if self.custom_epoch_scores:
                 y_pred_epoch = np.vstack(y_pred_epoch)
-                print y_pred_epoch.shape
+                self.y_pred_validation = y_pred_epoch
+                self.y_true_validation = y_valid
                 for custom_score in self.custom_epoch_scores:
                     score = custom_score[1](y_valid, y_pred_epoch)
                     info[custom_score[0]] = score
