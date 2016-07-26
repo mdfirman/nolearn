@@ -6,7 +6,7 @@ from .._compat import pickle
 from collections import OrderedDict
 import itertools
 from warnings import warn
-from time import time
+from time import time, sleep
 
 from lasagne.layers import get_all_layers
 from lasagne.layers import get_output
@@ -31,6 +31,37 @@ from theano import tensor as T
 
 from . import PrintLog
 from . import PrintLayerInfo
+
+import threading
+import Queue
+
+
+def make_buffer_for_iterator_with_thread(gen, n_workers, buffer_size):
+    wait_time = 0.02
+    generator_queue = Queue.Queue()
+    _stop = threading.Event()
+
+    def generator_task():
+        while not _stop.is_set():
+            try:
+                if generator_queue.qsize() < buffer_size:
+                    generator_output = next(gen)
+                    generator_queue.put(generator_output)
+                else:
+                    sleep(wait_time)
+            except (StopIteration, KeyboardInterrupt), e:
+                _stop.set()
+                return
+
+    generator_threads = [threading.Thread(target=generator_task) for _ in range(n_workers)]
+    for thread in generator_threads:
+        thread.start()
+
+    while not _stop.is_set() or not generator_queue.empty():
+        if not generator_queue.empty():
+            yield generator_queue.get()
+        else:
+            sleep(wait_time)
 
 
 class _list(list):
@@ -208,6 +239,7 @@ class NeuralNet(BaseEstimator):
         more_params=None,
         check_input=True,
         verbose=0,
+        thread=False,
         **kwargs
         ):
         """:param layers: A list of lasagne layers to compose into the final
@@ -307,6 +339,7 @@ class NeuralNet(BaseEstimator):
         self.more_params = more_params or {}
         self.check_input = check_input
         self.verbose = verbose
+        self.thread = thread
         if self.verbose:
             # XXX: PrintLog should come before any other handlers,
             # because early stopping will otherwise cause the last
@@ -586,7 +619,12 @@ class NeuralNet(BaseEstimator):
             t0 = time()
 
             batch_train_sizes = []
-            for Xb, yb in self.batch_iterator_train(X_train, y_train):
+
+            iterator = self.batch_iterator_train(X_train, y_train)
+            if self.thread:
+                iterator = make_buffer_for_iterator_with_thread(iter(iterator), 1, 10)
+
+            for Xb, yb in iterator:
                 batch_train_loss = self.apply_batch_func(
                     self.train_iter_, Xb, yb)
                 train_losses.append(batch_train_loss[0])
@@ -596,7 +634,12 @@ class NeuralNet(BaseEstimator):
                     func(self, self.train_history_)
 
             batch_valid_sizes = []
-            for Xb, yb in self.batch_iterator_test(X_valid, y_valid):
+
+            iterator = self.batch_iterator_test(X_valid, y_valid)
+            if self.thread:
+                iterator = make_buffer_for_iterator_with_thread(iter(iterator), 1, 10)
+
+            for Xb, yb in iterator:
                 batch_valid_loss, accuracy = self.apply_batch_func(
                     self.eval_iter_, Xb, yb)
                 valid_losses.append(batch_valid_loss)
